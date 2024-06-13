@@ -1,0 +1,9 @@
+boto3==1.17.21
+botocore==1.20.112
+cloud_volume==8.33.0
+numpy==1.23.5
+pandas==1.5.3
+protobuf==5.27.1
+pynrrd==0.4.3
+setuptools==65.6.3
+six==1.16.0
