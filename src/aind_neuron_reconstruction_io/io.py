@@ -1,13 +1,20 @@
 import os
 import json
 import nrrd
+import io
 from collections import deque
 import numpy as np
 import pandas as pd
 import cloudvolume
 from importlib.resources import files
 from six import iteritems
-from aind_neuron_reconstruction_io.utils import fix_local_cloudpath, read_file
+from cloudfiles import CloudFiles
+from meshparty import skeleton, meshwork
+from aind_neuron_reconstruction_io.utils import (fix_local_cloudpath, read_file, 
+                                                 pull_mw_skel_colors,
+                                                  get_parent_dir,get_basename)
+from aind_neuron_reconstruction_io.NeuronData import meshwork_skeleton_to_neurondata
+
 
 _cached_ccf_annotation = None
 
@@ -87,7 +94,7 @@ def annotate_ccf_structure(input_df, x_col='x', y_col='y', z_col='z'):
 
 
 
-def read_swc(input_file, separator=' '):
+def read_swc(input_file, ccf_annotate_vertices, separator=' '):
     """
     Will load a ccf-registered swc file 
 
@@ -103,16 +110,18 @@ def read_swc(input_file, separator=' '):
                     sep=separator,
                     comment='#',
                     header=None,
-                    names=['node_id', 'type', 'x', 'y', 'z', 'r', 'parent'])
+                    names=['node_id', 'compartment', 'x', 'y', 'z', 'r', 'parent'])
     # swc_df.set_index("node_id",inplace=True)
-    
-    annotate_ccf_structure(swc_df, x_col='x', y_col='y', z_col='z')
-
+    if ccf_annotate_vertices:    
+        annotate_ccf_structure(swc_df, x_col='x', y_col='y', z_col='z')
+    else:
+        swc_df['allenId']=[0]*len(swc_df)
+        
     return swc_df
 
         
 
-def read_json(input_file):
+def read_json(input_file, ccf_annotate_vertices):
     """
     Will load a ccf-registered mouselight json file.
     
@@ -231,16 +240,42 @@ def read_json(input_file):
                 
                 this_neuron_node_list.append(record)
 
-    col_list = ['node_id', 'type', 'x', 'y', 'z', 'r', 'parent', 'allenId']
+    col_list = ['node_id', 'compartment', 'x', 'y', 'z', 'r', 'parent', 'allenId']
     nrn_df = pd.DataFrame(this_neuron_node_list, columns = col_list)
-    if not has_ccf_annotations:
+    if not has_ccf_annotations and ccf_annotate_vertices:
         annotate_ccf_structure(nrn_df, x_col='x', y_col='y', z_col='z')
     
-        
+            
     return nrn_df
 
 
-def read_precomputed(project_directory, skeleton_id):
+def read_h5(input_file, ccf_annotate_vertices):
+    """load data from an .h5 file into a dataframe
+
+    Args:
+        input_file (str): path to .h5 file
+        ccf_annotate_vertices (bool): when True will try to annotate the vertices with ccf structure ID
+
+    Returns:
+        pd.Datarame: 
+    """
+       
+    directory = get_parent_dir(input_file)
+    filename = get_basename(input_file)
+    if "://" not in directory:
+        directory = "file://" + directory
+
+    cf = CloudFiles(directory)
+    binary = cf.get([filename])
+    with io.BytesIO(cf.get(binary[0]['path'])) as f:
+        f.seek(0)
+        mw = meshwork.load_meshwork(f)
+    data_df = meshwork_skeleton_to_neurondata(mw, ccf_annotate_vertices, get_compartment_labels=True)
+
+    return data_df
+
+
+def read_precomputed(project_directory, skeleton_id, ccf_annotate_vertices):
     """load a precomputed neuroglancer file into a dataframe. The input project directory should 
     follow the format as seen below:
     
@@ -258,24 +293,76 @@ def read_precomputed(project_directory, skeleton_id):
     Args:
         project_directory (str): path to neuroglancer project level directory
         skeleton_id (int): the integer id of the skeleton to load
+        ccf_annotate_vertices (bool): if true, will try to annotate the vertices with their ccf structure label
 
     Returns:
-        swc_df: neuron dataframe
+        neuron_df: neuron dataframe
     """
     project_directory_cv = fix_local_cloudpath(project_directory)
     cv = cloudvolume.CloudVolume(project_directory_cv)
     skel = cv.skeleton.get(skeleton_id)
-    swc_string = skel.to_swc()
-    swc_lines = [l for l in swc_string.split("\n") if (not l.startswith("#")) and (l!="")]
-    swc_lines_arr = [ [float(i) for i in l.split()] for l in swc_lines]
-    column_headers = ['node_id', 'type', 'x', 'y', 'z', 'r', 'parent']
-    swc_df = pd.DataFrame(swc_lines_arr, columns= column_headers)
-    swc_df[['x','y','z']] = swc_df[['x','y','z']]/1000
-    annotate_ccf_structure(swc_df, x_col='x', y_col='y', z_col='z')
+
+    vertices = skel.vertices
+    n_vertices = len(vertices)
+
+    edges = skel.edges
+
+    # get compartment labels 
+    skel_attributes = dir(skel)
+    if 'compartment' in skel_attributes:
+        node_types = skel.compartment
+    elif "vertex_types" in skel_attributes:
+        node_types = skel.vertex_types
+    elif "compartments" in skel_attributes:
+        node_types = skel.compartments
+    else:
+        node_types = np.zeros((n_vertices))
     
-    swc_df['node_id'] = swc_df['node_id'].astype(int)
-    swc_df['type'] = swc_df['type'].astype(int)
-    swc_df['parent'] = swc_df['parent'].astype(int)
-    swc_df['parent'] = swc_df['parent'].astype(int)
+    # get allen ID
+    allen_ids = np.zeros((n_vertices))
+    found_allen_ids = False
+    if "allenId" in skel_attributes:
+        allen_ids = skel.allenId
+        found_allen_ids = True
+        
+    # get presynaptic_count
+    pre_syn_ct = np.zeros((n_vertices))
+    if "presynaptic_count" in skel_attributes:
+        pre_syn_ct = skel.presynaptic_count
+
+    # get postsynaptic_count
+    post_syn_ct = np.zeros((n_vertices))
+    if "postsynaptic_count" in skel_attributes:
+        post_syn_ct = skel.postsynaptic_count
+        
     
-    return swc_df
+    # start building neuron data 
+    data_list = [
+        vertices,
+        skel.radius.reshape(-1,1),
+        node_types.reshape(-1,1),
+        allen_ids.reshape(-1,1),
+        pre_syn_ct.reshape(-1,1),
+        post_syn_ct.reshape(-1,1),
+    ]
+    data_arr =  np.hstack(data_list)
+    neuron_df = pd.DataFrame(data_arr, columns = ['x','y','z','r','compartment','allenId','presynaptic_count','postsynaptic_count'])
+    neuron_df['parent'] = [None]*n_vertices
+    neuron_df[['x','y','z']] = neuron_df[['x','y','z']]/1000
+    
+    for edge in edges:
+        neuron_df.loc[edge[0],'parent'] = edge[1]
+
+    # the root index will be the one that is not in the edge IDs
+    root_index = set(np.arange(n_vertices)) - set(edges[:,0])
+    neuron_df.loc[root_index, 'parent'] = -2
+    neuron_df['node_id'] = neuron_df.index
+    neuron_df['node_id'] = neuron_df['node_id']+1
+    neuron_df['parent'] = neuron_df['parent']+1
+    
+    neuron_df = neuron_df[['node_id','compartment','x','y','z','r','parent','allenId','presynaptic_count','postsynaptic_count']]
+    
+    if ccf_annotate_vertices and not found_allen_ids:
+        annotate_ccf_structure(neuron_df, x_col='x', y_col='y', z_col='z')
+        
+    return neuron_df

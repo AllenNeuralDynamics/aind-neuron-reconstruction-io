@@ -1,5 +1,8 @@
 .ipynb_checkpoints
 test.ipynb
+recon_io_test.ipynb
+src/aind_neuron_reconstruction_io/util_files/*
+!src/aind_neuron_reconstruction_io/util_files/*.nrrd
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

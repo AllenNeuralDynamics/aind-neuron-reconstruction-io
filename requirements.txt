@@ -7,3 +7,4 @@ protobuf==5.27.1
 pynrrd==0.4.3
 setuptools==65.6.3
 six==1.16.0
+meshparty==1.16.14

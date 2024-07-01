@@ -297,3 +297,30 @@ def read_s3_file(path_to_file):
         raise ValueError("AWS credentials not found.")
     except s3.exceptions.NoSuchKey:
         raise FileNotFoundError(f"File not found: {path_to_file}")
+
+
+def pull_mw_skel_colors(mw, basal_table, axon_table, apical_table):
+    ''' pulls the segment properties from meshwork anno and translates into skel index
+    basal node table used for general dendrite labels if no apical/basal differentiation
+    apical_table is optional 
+    '''
+    node_labels = np.full(len(mw.skeleton.vertices), 0)
+    soma_node = mw.skeleton.root
+    
+    basal_nodes = mw.anno[basal_table].skel_index
+    node_labels[basal_nodes] = 3
+
+    node_labels[soma_node] = 1
+
+    axon_nodes = mw.anno[axon_table].skel_index
+
+    if apical_table is not None:
+        apical_nodes = mw.anno[apical_table].skel_index
+        node_labels[apical_nodes] = 4            
+    
+    node_labels[axon_nodes] = 2
+
+    if 0 in node_labels:
+        print("Warning: label annotations passed give labels that are shorter than total length of skeleton nodes to label. Unassigned nodes have been labeled 0. if using pull_compartment_colors, add an option for 0 in inskel_color_map such as skel_color_map={3: 'firebrick', 4: 'salmon', 2: 'steelblue', 1: 'olive', 0:'gray'}.")
+
+    return node_labels

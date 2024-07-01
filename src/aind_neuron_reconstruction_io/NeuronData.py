@@ -6,11 +6,19 @@ from aind_neuron_reconstruction_io import io
 from aind_neuron_reconstruction_io.utils import (fix_local_cloudpath, file_exists,
                                                      get_parent_dir, get_grandparent_dir, 
                                                      get_basename, get_file_extension, 
-                                                     create_directory, read_file)
+                                                     create_directory, read_file,
+                                                     pull_mw_skel_colors)
 
 class NeuronData(pd.DataFrame):
     
-    _metadata = ['path_to_file', 'project_directory', 'neuron_id', '_child_ids_dict']
+    _metadata = [
+        'path_to_file', 
+        'input_data', 
+        'ccf_annotate_vertices', 
+        'project_directory', 
+        'neuron_id', 
+        '_child_ids_dict'
+        ]
     
     @property
     def _constructor(self):
@@ -19,15 +27,57 @@ class NeuronData(pd.DataFrame):
     @property
     def _constructor_sliced(self):
         return pd.Series  
-    
-    def __init__(self, path_to_file, *args, **kwargs):
+    def __init__(self, 
+                 path_to_file: str = None, 
+                 input_data: pd.DataFrame = None, 
+                 ccf_annotate_vertices: bool = False, 
+                 *args, **kwargs
+                 ):
+        """NeuronData class. Either path_to_file or input_data should be provided, not both. 
+
+        Args:
+            path_to_file (str, optional): path to a neuron file can be from the following
+            sources: .swc, .json (mouselight), .h5 (meshparty), precomputed (no extension).
+            Defaults to None. If None is passed for path_to_file, expects input_data to be passed.
+            
+            input_data (pd.DataFrame, optional): when this is not None, will create a NeuronData
+            object from this dataframe. Used when converting a meshworks skeleton to NeuronData.
+            The dataframe must have the columns listed below. Defaults to None. Expected columns:
+            x,y,z,radius,compartment,id,postsynaptic_count,presynaptic_count,allenId
+            
+            ccf_annotate_vertices (bool, optional): when True will annotate the NeuronData vertices
+            with CCF structure ID. Defaults to False.
+        """
+        
+        if (path_to_file is None) and (input_data is None):
+            raise ValueError("path_to_file and input_data are both None, need one or the other to create a NeuronData object")
+        elif (path_to_file is not None) and (input_data is not None):
+            raise ValueError("path_to_file and input_data are both defined, need only one to create a NeuronData object")
+        
+        self.input_data = input_data
+        self.path_to_file = path_to_file
         if isinstance(path_to_file, str):
             self.project_directory = None # for loading neuroglancer precomputed
             self.neuron_id = None # for loading neuroglancer precomputed
-            self.path_to_file = path_to_file
+            self.ccf_annotate_vertices = ccf_annotate_vertices
             self.validate_file()
             data = self.load_data()
+            
+            # default values for non-em data
+            if "presynaptic_count" not in data.columns:
+                data['presynaptic_count'] = [0]*len(data)
+            if "postsynaptic_count" not in data.columns:
+                data['postsynaptic_count'] = [0]*len(data)
+            
             super().__init__(data, *args, **kwargs)
+            
+        elif self.input_data is not None:
+            # generate from input data frame 
+            self.project_directory = None # for loading neuroglancer precomputed
+            self.neuron_id = None # for loading neuroglancer precomputed
+            self.ccf_annotate_vertices = ccf_annotate_vertices
+            super().__init__(self.input_data, *args, **kwargs)
+            
         else:
             super().__init__(path_to_file, *args, **kwargs)
         
@@ -38,7 +88,7 @@ class NeuronData(pd.DataFrame):
         # Check file extension
         file_extension = get_file_extension(self.path_to_file)
         
-        if file_extension not in ['.swc', '.json', '']:
+        if file_extension not in ['.swc', '.json', '.h5', '']:
             raise ValueError("File must be a .swc, .json, or an extensionless precomputed file")
         
         # Additional checks based on content
@@ -46,6 +96,8 @@ class NeuronData(pd.DataFrame):
             self.validate_json()
         elif file_extension == '.swc':
             self.validate_swc()
+        elif file_extension == ".h5":
+            self.validate_h5()
         else:
             self.validate_precomputed()
 
@@ -97,6 +149,9 @@ class NeuronData(pd.DataFrame):
               
                             
     def validate_swc(self):
+        file_content = read_file(self.path_to_file)
+        lines = file_content.splitlines()
+
         try:
             file_content = read_file(self.path_to_file)
             lines = file_content.splitlines()
@@ -104,7 +159,11 @@ class NeuronData(pd.DataFrame):
             err_msg = f"Invalid SWC file: {self.path_to_file}"
             raise ValueError(err_msg) from e
 
-
+    def validate_h5(self):
+        #TODO
+        True
+        return None
+         
     def validate_precomputed(self):
         """
         Requires:
@@ -147,11 +206,13 @@ class NeuronData(pd.DataFrame):
         # Load data based on file type
         file_extension = get_file_extension(self.path_to_file)
         if file_extension == '.json':
-            neuron_df =  io.read_json(self.path_to_file)
+            neuron_df =  io.read_json(self.path_to_file, self.ccf_annotate_vertices)
         elif file_extension == '.swc':
-            neuron_df = io.read_swc(self.path_to_file)
+            neuron_df = io.read_swc(self.path_to_file, self.ccf_annotate_vertices)
+        elif file_extension == ".h5":
+            neuron_df  = io.read_h5(self.path_to_file, self.ccf_annotate_vertices)
         else:
-            neuron_df = io.read_precomputed(self.project_directory, self.neuron_id)
+            neuron_df = io.read_precomputed(self.project_directory, self.neuron_id, self.ccf_annotate_vertices)
 
         # this computation is useful if we want to add things like NeuronData.get_children(node_id)
         parent_ids_dict = dict(zip(neuron_df["node_id"],neuron_df["parent"]))
@@ -171,9 +232,7 @@ class NeuronData(pd.DataFrame):
         Write NeuronData to binary precomputed file for neuroglancer. This will 
         initialize a info file for the output directory, create a skeletons directory, 
         add an info file there and write the skeleton to a precomputed format.
-        
-        TODO add metadata
-        
+                
         Args:
             outfile (str): path to output file, the file name should be the "segid" i.e.
                            the unique neuroglancer id for this neuron (e.g. /path/to/1000)
@@ -217,9 +276,20 @@ class NeuronData(pd.DataFrame):
             },
             {
                 'id': 'compartment',
+                'data_type': 'int',
+                'num_components': 1
+            },
+            {
+                'id': 'presynaptic_count',
+                'data_type': 'float32',
+                'num_components': 1
+            },
+            {
+                'id': 'postsynaptic_count',
                 'data_type': 'float32',
                 'num_components': 1
             }
+
         ]
         cv.skeleton.meta.info = sk_info
         cv.skeleton.meta.commit_info()
@@ -235,8 +305,8 @@ class NeuronData(pd.DataFrame):
         edges_relabeled = np.column_stack((edge_ids, parent_ids))
 
         radius = self['r'].values.astype(np.float32)
-        vertex_types = self['type'].values.astype(np.float32)
-        
+        vertex_types = self['compartment'].values.astype(int) #np.float32)
+
         sk_cv = cloudvolume.Skeleton(vertices,
                                      edges_relabeled,
                                      radius,
@@ -245,6 +315,8 @@ class NeuronData(pd.DataFrame):
                                      extra_attributes = sk_info['vertex_attributes']
                                      )
         sk_cv.allenId = self.allenId.values
+        sk_cv.postsynaptic_count = self.postsynaptic_count.values
+        sk_cv.presynaptic_count = self.presynaptic_count.values
         sk_cv.compartment = vertex_types
         
         cv.skeleton.upload(sk_cv)
@@ -253,7 +325,8 @@ class NeuronData(pd.DataFrame):
         
 def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids = None):
     """
-    Will write a list of NeuronData objects to an output directory with info files
+    Will write a list of NeuronData objects to an output directory organized for neuroglancer
+    visualizations.
 
     Args:
         list_of_neuron_data (list): list of NeuronData objects
@@ -261,7 +334,6 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
         neuron_ids (list): list of neuron IDs (integers), if not provided will just
         use the NeuronDatas index in the list.
         
-    TODO: pass in metadata for skeletons 
     """
     if not file_exists(output_dir):
         create_directory(output_dir)
@@ -308,9 +380,20 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
         },
         {
             'id': 'compartment',
+            'data_type': 'int',
+            'num_components': 1
+        },
+        {
+            'id': 'presynaptic_count',
+            'data_type': 'float32',
+            'num_components': 1
+        },
+        {
+            'id': 'postsynaptic_count',
             'data_type': 'float32',
             'num_components': 1
         }
+
     ]
     cv.skeleton.meta.info = sk_info
     cv.skeleton.meta.commit_info()
@@ -329,7 +412,7 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
         edges_relabeled = np.column_stack((edge_ids, parent_ids))
 
         radius = neuron_data['r'].values.astype(np.float32)
-        vertex_types = neuron_data['type'].values.astype(np.float32)
+        vertex_types = neuron_data['compartment'].values.astype(int) #np.float32)
         
         sk_cv = cloudvolume.Skeleton(vertices,
                                         edges_relabeled,
@@ -339,8 +422,97 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
                                         extra_attributes = sk_info['vertex_attributes']
                                         )
         sk_cv.allenId = neuron_data.allenId.values
+        sk_cv.postsynaptic_count = neuron_data.postsynaptic_count.values
+        sk_cv.presynaptic_count = neuron_data.presynaptic_count.values
         sk_cv.compartment = vertex_types
         
         skeletons.append(sk_cv)
     cv.skeleton.upload(skeletons)
     
+    
+def meshwork_skeleton_to_neurondata(mw, ccf_annotate_vertices, get_compartment_labels):
+    """
+    Will convert a meshwork skeleton to a NeuronData object
+
+
+    Args:
+        mw (meshparty meshworks object): 
+        ccf_annotate_vertices (bool): when True will try to annotate the vertices with ccf annotations 
+        get_compartment_labels (bool): when True will add compartment labels to the skeleton
+
+    Returns:
+        NeuronData: 
+    """
+        
+    vertices = mw.skeleton.vertices
+    n_vertices = len(vertices)
+
+    edges = mw.skeleton.edges
+    root_index = mw.skeleton._rooted.root
+
+    r_df = mw.anno.segment_properties.df[['r_eff', 'mesh_ind_filt']].set_index('mesh_ind_filt')
+    radius = r_df.loc[mw.skeleton_indices.to_mesh_region_point].r_eff.values/1000
+
+    # get compartment labels
+    if get_compartment_labels:    
+        compartment = pull_mw_skel_colors(mw, 'basal_mesh_labels', 'is_axon', 'apical_mesh_labels')
+    else:
+        compartment =  np.zeros(len(radius))
+        
+    # start building neuron data 
+    data_list = [
+        vertices,
+        radius.reshape(-1,1),
+        compartment.reshape(-1,1)
+    ]
+    data_arr =  np.hstack(data_list)
+
+    neuron_df = pd.DataFrame(data_arr, columns = ['x','y','z','r','compartment'])
+    neuron_df['parent'] = [None]*n_vertices
+
+    for edge in edges:
+        neuron_df.loc[edge[0],'parent'] = edge[1]
+    neuron_df.loc[root_index, 'parent'] = -2
+    neuron_df['node_id'] = neuron_df.index
+    neuron_df['node_id'] = neuron_df['node_id']+1
+    neuron_df['parent'] = neuron_df['parent']+1
+
+    # Quantify synapses by node
+    postsyn_counts_df = pd.DataFrame(mw.anno.post_syn.df['post_pt_mesh_ind_filt'].value_counts())
+    postsyn_counts_df.columns=['count']
+    postsyn_counts_df.index.names = ['mesh']
+
+    postsyn_mesh = pd.DataFrame(mw.mesh_indices.to_skel_index_padded, columns=['skel'])
+    postsyn_mesh.index.names=['mesh']
+    postsyn_mesh['counts'] = 0
+    postsyn_mesh.loc[postsyn_counts_df.index, 'counts'] = postsyn_counts_df['count']
+
+    presyn_counts_df = pd.DataFrame(mw.anno.pre_syn.df['pre_pt_mesh_ind_filt'].value_counts())
+    presyn_counts_df.columns=['count']
+    presyn_counts_df.index.names = ['mesh']
+
+    presyn_mesh = pd.DataFrame(mw.mesh_indices.to_skel_index_padded, columns=['skel'])
+    presyn_mesh.index.names=['mesh']
+    presyn_mesh['counts'] = 0
+    presyn_mesh.loc[presyn_counts_df.index, 'counts'] = presyn_counts_df['count']
+
+    postsyn_skel_counts = postsyn_mesh.groupby('skel').sum().to_dict()['counts']
+    presyn_skel_counts = presyn_mesh.groupby('skel').sum().to_dict()['counts']  
+
+
+    neuron_df['postsynaptic_count'] = neuron_df['node_id'].map(postsyn_skel_counts)
+    neuron_df['presynaptic_count'] = neuron_df['node_id'].map(presyn_skel_counts)
+    if ccf_annotate_vertices:    
+        io.annotate_ccf_structure(neuron_df, x_col='x', y_col='y', z_col='z')
+    else:
+        neuron_df['allenId']=[0]*len(neuron_df)
+        
+    
+    neuron_df = neuron_df[['node_id','compartment','x','y','z','r','parent','allenId','presynaptic_count','postsynaptic_count']]
+    
+
+        
+    neuron_data = NeuronData(input_data=neuron_df,ccf_annotate_vertices=False)
+    
+    return neuron_data
+
