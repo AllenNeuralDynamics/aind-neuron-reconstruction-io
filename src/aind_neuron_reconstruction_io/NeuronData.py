@@ -214,13 +214,13 @@ class NeuronData(pd.DataFrame):
         else:
             neuron_df = io.read_precomputed(self.project_directory, self.neuron_id, self.ccf_annotate_vertices)
 
-        # this computation is useful if we want to add things like NeuronData.get_children(node_id)
+        # for loop below is useful if we want to add things like NeuronData.get_children(node_id)
         parent_ids_dict = dict(zip(neuron_df["node_id"],neuron_df["parent"]))
         child_ids_dict = { nid:[] for nid in parent_ids_dict }
-        for nid in parent_ids_dict:
-            pid = parent_ids_dict[nid]
-            if pid != -1:
-                child_ids_dict[pid].append(nid)
+        # for nid in parent_ids_dict:
+        #     pid = parent_ids_dict[nid]
+        #     if pid != -1:
+        #         child_ids_dict[pid].append(nid)
         
         # create the child look up dictionary
         self._child_ids_dict = child_ids_dict
@@ -432,7 +432,7 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
     
 def meshwork_skeleton_to_neurondata(mw, ccf_annotate_vertices, get_compartment_labels):
     """
-    Will convert a meshwork skeleton to a NeuronData object
+    Will convert a meshwork object to a NeuronData object
 
 
     Args:
@@ -509,8 +509,6 @@ def meshwork_skeleton_to_neurondata(mw, ccf_annotate_vertices, get_compartment_l
         
     
     neuron_df = neuron_df[['node_id','compartment','x','y','z','r','parent','allenId','presynaptic_count','postsynaptic_count']]
-    
-
         
     neuron_data = NeuronData(input_data=neuron_df,ccf_annotate_vertices=False)
     

@@ -105,7 +105,7 @@ def read_swc(input_file, ccf_annotate_vertices, separator=' '):
     Returns:
         swc_df: DataFrame  
     """
-    # pandas >=0.24 will allow reading directly from cloud paths
+    # pandas >=0.24 will allow reading directly from cloud locations
     swc_df = pd.read_csv(input_file,
                     sep=separator,
                     comment='#',
