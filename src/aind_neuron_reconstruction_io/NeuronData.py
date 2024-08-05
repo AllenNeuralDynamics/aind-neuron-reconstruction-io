@@ -120,13 +120,22 @@ class NeuronData(pd.DataFrame):
             raise ValueError(f"Invalid JSON file: {e}")
         except Exception as e:
             raise ValueError(f"Error reading JSON file: {e}")
+        data_keys = list(data.keys())
+        indicators = ['neuron', 'neurons']
+        if not any([i in data_keys for i in indicators]):
+            raise ValueError("input json must have 'neurons' or 'neuron' key")
+        if all([i in data_keys for i in indicators]):
+            raise ValueError("input json contains both 'neurons' and 'neuron' keys, unsure which to use")
 
-        if "neurons" not in data:
-            raise ValueError("input json must have 'neurons' key")
-        
-        neuron_dicts = data['neurons']
+        if 'neurons' in data_keys:
+            neuron_dicts = data['neurons']
+        elif 'neuron' in data_keys:
+            neuron_dicts = [data['neuron']]
+        else:
+            neuron_dicts = []
+
         if neuron_dicts == []:
-            raise ValueError("at least one neuron must be contained within the 'neurons' value")
+            raise ValueError("at least one neuron must be contained within the 'neurons' or 'neuron' value")
 
         if len(neuron_dicts) != 1:
             raise ValueError(f"Each mouselight .json file should contain 1 neuron but {len(neuron_dicts)} were found")
@@ -428,89 +437,4 @@ def neurondata_list_to_precomputed(list_of_neuron_data, output_dir, neuron_ids =
         
         skeletons.append(sk_cv)
     cv.skeleton.upload(skeletons)
-    
-    
-def meshwork_skeleton_to_neurondata(mw, ccf_annotate_vertices, get_compartment_labels):
-    """
-    Will convert a meshwork object to a NeuronData object
-
-
-    Args:
-        mw (meshparty meshworks object): 
-        ccf_annotate_vertices (bool): when True will try to annotate the vertices with ccf annotations 
-        get_compartment_labels (bool): when True will add compartment labels to the skeleton
-
-    Returns:
-        NeuronData: 
-    """
-        
-    vertices = mw.skeleton.vertices
-    n_vertices = len(vertices)
-
-    edges = mw.skeleton.edges
-    root_index = mw.skeleton._rooted.root
-
-    r_df = mw.anno.segment_properties.df[['r_eff', 'mesh_ind_filt']].set_index('mesh_ind_filt')
-    radius = r_df.loc[mw.skeleton_indices.to_mesh_region_point].r_eff.values/1000
-
-    # get compartment labels
-    if get_compartment_labels:    
-        compartment = pull_mw_skel_colors(mw, 'basal_mesh_labels', 'is_axon', 'apical_mesh_labels')
-    else:
-        compartment =  np.zeros(len(radius))
-        
-    # start building neuron data 
-    data_list = [
-        vertices,
-        radius.reshape(-1,1),
-        compartment.reshape(-1,1)
-    ]
-    data_arr =  np.hstack(data_list)
-
-    neuron_df = pd.DataFrame(data_arr, columns = ['x','y','z','r','compartment'])
-    neuron_df['parent'] = [None]*n_vertices
-
-    for edge in edges:
-        neuron_df.loc[edge[0],'parent'] = edge[1]
-    neuron_df.loc[root_index, 'parent'] = -2
-    neuron_df['node_id'] = neuron_df.index
-    neuron_df['node_id'] = neuron_df['node_id']+1
-    neuron_df['parent'] = neuron_df['parent']+1
-
-    # Quantify synapses by node
-    postsyn_counts_df = pd.DataFrame(mw.anno.post_syn.df['post_pt_mesh_ind_filt'].value_counts())
-    postsyn_counts_df.columns=['count']
-    postsyn_counts_df.index.names = ['mesh']
-
-    postsyn_mesh = pd.DataFrame(mw.mesh_indices.to_skel_index_padded, columns=['skel'])
-    postsyn_mesh.index.names=['mesh']
-    postsyn_mesh['counts'] = 0
-    postsyn_mesh.loc[postsyn_counts_df.index, 'counts'] = postsyn_counts_df['count']
-
-    presyn_counts_df = pd.DataFrame(mw.anno.pre_syn.df['pre_pt_mesh_ind_filt'].value_counts())
-    presyn_counts_df.columns=['count']
-    presyn_counts_df.index.names = ['mesh']
-
-    presyn_mesh = pd.DataFrame(mw.mesh_indices.to_skel_index_padded, columns=['skel'])
-    presyn_mesh.index.names=['mesh']
-    presyn_mesh['counts'] = 0
-    presyn_mesh.loc[presyn_counts_df.index, 'counts'] = presyn_counts_df['count']
-
-    postsyn_skel_counts = postsyn_mesh.groupby('skel').sum().to_dict()['counts']
-    presyn_skel_counts = presyn_mesh.groupby('skel').sum().to_dict()['counts']  
-
-
-    neuron_df['postsynaptic_count'] = neuron_df['node_id'].map(postsyn_skel_counts)
-    neuron_df['presynaptic_count'] = neuron_df['node_id'].map(presyn_skel_counts)
-    if ccf_annotate_vertices:    
-        io.annotate_ccf_structure(neuron_df, x_col='x', y_col='y', z_col='z')
-    else:
-        neuron_df['allenId']=[0]*len(neuron_df)
-        
-    
-    neuron_df = neuron_df[['node_id','compartment','x','y','z','r','parent','allenId','presynaptic_count','postsynaptic_count']]
-        
-    neuron_data = NeuronData(input_data=neuron_df,ccf_annotate_vertices=False)
-    
-    return neuron_data
 
