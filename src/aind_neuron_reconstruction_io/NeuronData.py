@@ -323,9 +323,13 @@ class NeuronData(pd.DataFrame):
                                      segid=segid,
                                      extra_attributes = sk_info['vertex_attributes']
                                      )
-        sk_cv.allenId = self.allenId.values
-        sk_cv.postsynaptic_count = self.postsynaptic_count.values
-        sk_cv.presynaptic_count = self.presynaptic_count.values
+        if "allenId" in self.columns:
+          sk_cv.allenId = self.allenId.values
+        if "postsynaptic_count" in self.columns:
+          sk_cv.postsynaptic_count = self.postsynaptic_count.values
+        if "presynaptic_count" in self.columns:
+          sk_cv.presynaptic_count = self.presynaptic_count.values
+          
         sk_cv.compartment = vertex_types
         
         cv.skeleton.upload(sk_cv)
