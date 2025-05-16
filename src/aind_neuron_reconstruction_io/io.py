@@ -12,7 +12,7 @@ import nrrd
 import numpy as np
 import pandas as pd
 from cloudfiles import CloudFiles
-from meshparty import meshwork, skeleton
+from meshparty import meshwork
 from six import iteritems
 
 from aind_neuron_reconstruction_io.NeuronData import NeuronData

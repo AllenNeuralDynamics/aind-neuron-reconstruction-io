@@ -226,7 +226,7 @@ class NeuronData(pd.DataFrame):
         """Validate swc file"""
         try:
             file_content = read_file(self.path_to_file)
-            lines = file_content.splitlines()
+            file_content.splitlines()
         except Exception as e:
             err_msg = f"Invalid SWC file: {self.path_to_file}"
             raise ValueError(err_msg) from e
