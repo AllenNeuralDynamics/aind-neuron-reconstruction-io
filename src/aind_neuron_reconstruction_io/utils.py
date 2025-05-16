@@ -1,13 +1,18 @@
-import numpy as np 
+"""
+This module provides utility functions to support NeuronData.
+"""
+
 import os
-import boto3
-from botocore.exceptions import NoCredentialsError, ClientError
-from google.cloud import storage
 from urllib.parse import urlparse
+
+import boto3
+import numpy as np
+from botocore.exceptions import ClientError, NoCredentialsError
+from google.cloud import storage
 
 
 def coordinates_to_voxels(coords, resolution=(10, 10, 10)):
-    """ Find the voxel coordinates of spatial coordinates
+    """Find the voxel coordinates of spatial coordinates
 
     Parameters
     ----------
@@ -25,10 +30,13 @@ def coordinates_to_voxels(coords, resolution=(10, 10, 10)):
     if len(resolution) != coords.shape[1]:
         raise ValueError(
             f"second dimension of `coords` must match length of `resolution`; "
-            f"{len(resolution)} != {coords.shape[1]}")
+            f"{len(resolution)} != {coords.shape[1]}"
+        )
 
     if not np.issubdtype(coords.dtype, np.number):
-        raise ValueError(f"coords must have a numeric dtype (dtype is '{coords.dtype}')")
+        raise ValueError(
+            f"coords must have a numeric dtype (dtype is '{coords.dtype}')"
+        )
 
     voxels = np.floor(coords / resolution).astype(int)
     return voxels
@@ -82,8 +90,8 @@ def s3_file_exists(path):
     """
     parsed_url = urlparse(path)
     bucket_name = parsed_url.netloc
-    file_key = parsed_url.path.lstrip('/')
-    s3 = boto3.client('s3')
+    file_key = parsed_url.path.lstrip("/")
+    s3 = boto3.client("s3")
     try:
         s3.head_object(Bucket=bucket_name, Key=file_key)
         return True
@@ -105,7 +113,7 @@ def gcs_file_exists(path):
     """
     parsed_url = urlparse(path)
     bucket_name = parsed_url.netloc
-    file_key = parsed_url.path.lstrip('/')
+    file_key = parsed_url.path.lstrip("/")
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(file_key)
@@ -124,7 +132,7 @@ def get_parent_dir(path):
     """
     if path.startswith("s3://") or path.startswith("gs://"):
         parsed_url = urlparse(path)
-        parent_dir = '/'.join(parsed_url.path.strip('/').split('/')[:-1])
+        parent_dir = "/".join(parsed_url.path.strip("/").split("/")[:-1])
         return f"{parsed_url.scheme}://{parsed_url.netloc}/{parent_dir}"
     else:
         return os.path.dirname(path)
@@ -142,7 +150,7 @@ def get_grandparent_dir(path):
     """
     if path.startswith("s3://") or path.startswith("gs://"):
         parsed_url = urlparse(path)
-        grandparent_dir = '/'.join(parsed_url.path.strip('/').split('/')[:-2])
+        grandparent_dir = "/".join(parsed_url.path.strip("/").split("/")[:-2])
         return f"{parsed_url.scheme}://{parsed_url.netloc}/{grandparent_dir}"
     else:
         return os.path.dirname(os.path.dirname(path))
@@ -205,8 +213,8 @@ def s3_create_directory(path):
     """
     parsed_url = urlparse(path)
     bucket_name = parsed_url.netloc
-    directory_key = parsed_url.path.lstrip('/') + '/'
-    s3 = boto3.client('s3')
+    directory_key = parsed_url.path.lstrip("/") + "/"
+    s3 = boto3.client("s3")
     try:
         s3.put_object(Bucket=bucket_name, Key=directory_key)
     except NoCredentialsError:
@@ -224,14 +232,15 @@ def gcs_create_directory(path):
     """
     parsed_url = urlparse(path)
     bucket_name = parsed_url.netloc
-    directory_key = parsed_url.path.lstrip('/') + '/'
+    directory_key = parsed_url.path.lstrip("/") + "/"
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(directory_key)
     try:
-        blob.upload_from_string('')
+        blob.upload_from_string("")
     except Exception as e:
         raise ValueError(f"Failed to create directory in GCS: {e}")
+
 
 def read_file(path_to_file):
     """
@@ -248,6 +257,7 @@ def read_file(path_to_file):
     else:
         return read_local_file(path_to_file)
 
+
 def read_local_file(path_to_file):
     """
     Read a local file.
@@ -256,8 +266,9 @@ def read_local_file(path_to_file):
     Returns:
         str: The content of the file as a string.
     """
-    with open(path_to_file, 'r') as file:
+    with open(path_to_file, "r") as file:
         return file.read()
+
 
 def read_gcs_file(path_to_file):
     """
@@ -269,13 +280,14 @@ def read_gcs_file(path_to_file):
     """
     parsed_url = urlparse(path_to_file)
     bucket_name = parsed_url.netloc
-    file_key = parsed_url.path.lstrip('/')
-    
+    file_key = parsed_url.path.lstrip("/")
+
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(file_key)
-    
+
     return blob.download_as_text()
+
 
 def read_s3_file(path_to_file):
     """
@@ -287,12 +299,12 @@ def read_s3_file(path_to_file):
     """
     parsed_url = urlparse(path_to_file)
     bucket_name = parsed_url.netloc
-    file_key = parsed_url.path.lstrip('/')
-    
-    s3 = boto3.client('s3')
+    file_key = parsed_url.path.lstrip("/")
+
+    s3 = boto3.client("s3")
     try:
         obj = s3.get_object(Bucket=bucket_name, Key=file_key)
-        return obj['Body'].read().decode('utf-8')
+        return obj["Body"].read().decode("utf-8")
     except NoCredentialsError:
         raise ValueError("AWS credentials not found.")
     except s3.exceptions.NoSuchKey:
@@ -300,13 +312,13 @@ def read_s3_file(path_to_file):
 
 
 def pull_mw_skel_colors(mw, basal_table, axon_table, apical_table):
-    ''' pulls the segment properties from meshwork anno and translates into skel index
+    """pulls the segment properties from meshwork anno and translates into skel index
     basal node table used for general dendrite labels if no apical/basal differentiation
-    apical_table is optional 
-    '''
+    apical_table is optional
+    """
     node_labels = np.full(len(mw.skeleton.vertices), 0)
     soma_node = mw.skeleton.root
-    
+
     basal_nodes = mw.anno[basal_table].skel_index
     node_labels[basal_nodes] = 3
 
@@ -316,11 +328,13 @@ def pull_mw_skel_colors(mw, basal_table, axon_table, apical_table):
 
     if apical_table is not None:
         apical_nodes = mw.anno[apical_table].skel_index
-        node_labels[apical_nodes] = 4            
-    
+        node_labels[apical_nodes] = 4
+
     node_labels[axon_nodes] = 2
 
     if 0 in node_labels:
-        print("Warning: label annotations passed give labels that are shorter than total length of skeleton nodes to label. Unassigned nodes have been labeled 0. if using pull_compartment_colors, add an option for 0 in inskel_color_map such as skel_color_map={3: 'firebrick', 4: 'salmon', 2: 'steelblue', 1: 'olive', 0:'gray'}.")
+        print(
+            "Warning: label annotations passed give labels that are shorter than total length of skeleton nodes to label. Unassigned nodes have been labeled 0. if using pull_compartment_colors, add an option for 0 in inskel_color_map such as skel_color_map={3: 'firebrick', 4: 'salmon', 2: 'steelblue', 1: 'olive', 0:'gray'}."
+        )
 
     return node_labels
