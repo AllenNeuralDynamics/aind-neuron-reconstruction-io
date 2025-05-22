@@ -15,7 +15,6 @@ from cloudfiles import CloudFiles
 from meshparty import meshwork
 from six import iteritems
 
-from aind_neuron_reconstruction_io.NeuronData import NeuronData
 from aind_neuron_reconstruction_io.utils import (
     fix_local_cloudpath,
     get_basename,
@@ -498,6 +497,7 @@ def meshwork_skeleton_to_neurondata(
     Returns:
         NeuronData:
     """
+    from aind_neuron_reconstruction_io.NeuronData import NeuronData
 
     vertices = mw.skeleton.vertices
     n_vertices = len(vertices)
