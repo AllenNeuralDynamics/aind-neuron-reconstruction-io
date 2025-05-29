@@ -5,7 +5,6 @@ from setuptools import find_packages, setup
 
 def read(rel_path: str) -> str:
     here = os.path.abspath(os.path.dirname(__file__))
-    print(here)
     with open(os.path.join(here, rel_path)) as fp:
         return fp.read()
 
@@ -18,9 +17,6 @@ def get_version(rel_path: str) -> str:
     raise RuntimeError("Unable to find version string.")
 
 
-with open("requirements.txt", "r") as f:
-    required = f.read().splitlines()
-
 if __name__ == "__main__":
     setup(
         name="aind-neuron-reconstruction-io",
@@ -28,9 +24,8 @@ if __name__ == "__main__":
         author="Matt Mallory, Sharmishtaa Seshamani",
         author_email="matt.mallory@alleninstitute.org, sharmishtaas@alleninstitute.org",
         packages=find_packages(),
-        install_requires=required,
         package_data={
-            "src": ["aind_neuron_reconstruction_io/util_files/*.nrrd"]
+            "aind_neuron_reconstruction_io": ["util_files/*.nrrd"]
         },
         include_package_data=True,
     )
