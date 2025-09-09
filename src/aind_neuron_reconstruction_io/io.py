@@ -191,10 +191,25 @@ def read_json(input_file, ccf_annotate_vertices):
         nrn_df: DataFrame
     """
 
-    compartments = ["axon", "dendrite"]
-
     file_content = read_file(input_file)
     data_dict = json.loads(file_content)
+
+    return parse_json(data_dict, ccf_annotate_vertices)
+
+
+def parse_json(data_dict, ccf_annotate_vertices):
+    """
+    Will parse a ccf-registered mouselight json object.
+
+    Args:
+        data_dict (str): mouselight json object
+
+    Returns:
+        nrn_df: DataFrame
+    """
+
+    compartments = ["axon", "dendrite"]
+
     data_key = "neurons" if "neurons" in data_dict else "neuron"
     neuron_list = (
         data_dict[data_key] if data_key == "neurons" else [data_dict[data_key]]
